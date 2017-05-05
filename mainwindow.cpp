@@ -18,10 +18,15 @@ MainWindow::MainWindow(QWidget *parent) :
     scrollarea->setMinimumSize(300, 300);
     imgLabel = new QLabel(this);
     scrollarea->setWidget(imgLabel);
+    scrollarea->setSizePolicy(QSizePolicy(QSizePolicy::Expanding,QSizePolicy::Expanding));
+    scrollarea->setAlignment(Qt::AlignCenter);
+    scrollarea->setWidgetResizable(true);
     QHBoxLayout *hbox = new QHBoxLayout(this);
-    QVBoxLayout *vbox = new QVBoxLayout();
+    QWidget *widget = new QWidget(this);
+    widget->setMaximumWidth(600);
+    QVBoxLayout *vbox = new QVBoxLayout(widget);
     hbox->addWidget(scrollarea);
-    hbox->addLayout(vbox);
+    hbox->addWidget(widget);
     this->setLayout(hbox);
 
     QPushButton *openButton = new QPushButton("Open");
@@ -76,7 +81,7 @@ MainWindow::MainWindow(QWidget *parent) :
     htbox = new QHBoxLayout();
     htbox->addWidget(stretchButton);
     htbox->addWidget(miEdit);
-    htbox->addWidget(new QLabel(" to ", this));
+    htbox->addWidget(new QLabel("~", this));
     htbox->addWidget(maEdit);
     vbox->addLayout(htbox);
     connect(stretchButton, SIGNAL(clicked(bool)), this, SLOT(contrastStretch()));
@@ -98,13 +103,39 @@ MainWindow::MainWindow(QWidget *parent) :
     vbox->addLayout(htbox);
     connect(histMatchButton, SIGNAL(clicked(bool)), this, SLOT(histMatch()));
     connect(histMatchRGBButton, SIGNAL(clicked(bool)), this, SLOT(histMatchRGB()));
+
+    heightEdit = new QLineEdit(this);
+    heightEdit->setValidator(new QIntValidator(0, 1024*1024, this));
+    heightEdit->setText("1024");
+    weightEdit = new QLineEdit(this);
+    weightEdit->setValidator(new QIntValidator(0, 1024*1024, this));
+    weightEdit->setText("1024");
+    htbox = new QHBoxLayout();
+    htbox->addWidget(new QLabel("New Size\t", this));
+    htbox->addWidget(weightEdit);
+    htbox->addWidget(new QLabel("X", this));
+    htbox->addWidget(heightEdit);
+    vbox->addLayout(htbox);
+
+    QPushButton *neighborButton = new QPushButton("Nearest neighbor");
+    QPushButton *bilinearButton = new QPushButton("Bilinear");
+    QPushButton *bicubicButton = new QPushButton("Bicubic");
+    htbox = new QHBoxLayout();
+    htbox->addWidget(neighborButton);
+    htbox->addWidget(bilinearButton);
+    htbox->addWidget(bicubicButton);
+    vbox->addLayout(htbox);
+    connect(neighborButton, SIGNAL(clicked(bool)), this, SLOT(neighborResize()));
+    connect(bilinearButton, SIGNAL(clicked(bool)), this, SLOT(bilinearResize()));
+    connect(bicubicButton, SIGNAL(clicked(bool)), this, SLOT(bicubicResize()));
+
 }
 
 void MainWindow::displayImg()
 {
     QImage qimg = QImage((const unsigned char*)(img.data), img.cols, img.rows, img.cols*img.channels(), QImage::Format_RGB888);
     this->imgLabel->setPixmap(QPixmap::fromImage(qimg));
-    this->imgLabel->resize(this->imgLabel->pixmap()->size());
+    this->imgLabel->setAlignment(Qt::AlignCenter);
 }
 
 void MainWindow::openImg()
@@ -130,7 +161,7 @@ void MainWindow::saveImg()
     cv::imwrite(fileName.toStdString(), timg);
 }
 
-void myLUT(cv::Mat& src, const uchar* table, cv::Mat& trg)
+static void myLUT(cv::Mat& src, const uchar* table, cv::Mat& trg)
 {
     trg = src.clone();
     // accept only char type matrices
@@ -154,7 +185,7 @@ void myLUT(cv::Mat& src, const uchar* table, cv::Mat& trg)
     return ;
 }
 
-void minmaxImgage(const cv::Mat& src, uchar &mi, uchar &ma)
+static void minmaxImgage(const cv::Mat& src, uchar &mi, uchar &ma)
 {
     CV_Assert(src.depth() != sizeof(uchar));
     int channels = src.channels();
@@ -178,7 +209,7 @@ void minmaxImgage(const cv::Mat& src, uchar &mi, uchar &ma)
     return ;
 }
 
-std::vector<float> getCdf(const cv::Mat& src)
+static std::vector<float> getCdf(const cv::Mat& src)
 {
     CV_Assert(src.depth() != sizeof(uchar));
     int channels = src.channels();
@@ -408,6 +439,132 @@ void MainWindow::histMatchRGB()
     cv::merge(ycr, img);
     this->displayImg();
 }
+
+void MainWindow::neighborResize()
+{
+    if(img.empty()) return ;
+    if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
+    if(state != 7)
+    {
+        this->imgbak = this->img.clone();
+        state = 7;
+    }
+    int h = heightEdit->text().toInt(), w = weightEdit->text().toInt();
+    img.create(h,w, CV_8UC3);
+    int nRows = img.rows;
+    int nCols = img.cols;
+    for(int i = 0; i < nRows; ++i)
+    {
+        cv::Vec3b* n = img.ptr<cv::Vec3b>(i);
+        const cv::Vec3b* p = imgbak.ptr<cv::Vec3b>(round(double(i)/nRows*imgbak.rows));
+        for (int j = 0; j < nCols; ++j)
+        {
+            n[j] = p[int(round(double(j)/nCols*imgbak.cols))];
+        }
+    }
+    this->displayImg();
+}
+
+static cv::Vec3b bilinearInterpolate(cv::Vec3b c00, cv::Vec3b c10, cv::Vec3b c01, cv::Vec3b c11, double w1, double w2, double w3, double w4)
+{
+    return w1*c00+w2*c01+w3*c10+w4*c11;
+}
+
+void MainWindow::bilinearResize()
+{
+    if(img.empty()) return ;
+    if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
+    if(state != 7)
+    {
+        this->imgbak = this->img.clone();
+        state = 7;
+    }
+    int h = heightEdit->text().toInt(), w = weightEdit->text().toInt();
+    img.create(h,w, CV_8UC3);
+    int nRows = img.rows;
+    int nCols = img.cols;
+    for(int i = 0; i < nRows; ++i)
+    {
+        cv::Vec3b* n = img.ptr<cv::Vec3b>(i);
+        int x = double(i)/nRows*imgbak.rows;
+        const cv::Vec3b* p0 = imgbak.ptr<cv::Vec3b>(x);
+        const cv::Vec3b* p1 = imgbak.ptr<cv::Vec3b>(x+1);
+        double xDiff = double(i)/nRows*imgbak.rows-x;
+        double xDiffR = 1.0f-xDiff;
+        #pragma omp parallel for
+        for (int j = 0; j < nCols; ++j)
+        {
+            int y = double(j)/nCols*imgbak.cols;
+            double yDiff = double(j)/nCols*imgbak.cols-y;
+            double yDiffR = 1.0f-yDiff;
+            const cv::Vec3b c00=p0[y], c01=p0[y+1], c10=p1[y], c11=p1[y+1];
+            double w1 = yDiffR*xDiffR;
+            double w2 = yDiff*xDiffR;
+            double w3 = yDiffR*xDiff;
+            double w4 = yDiff*xDiff;
+            n[j] = bilinearInterpolate(c00, c10, c01, c11, w1, w2, w3, w4);
+        }
+    }
+    this->displayImg();
+}
+
+static double cubicW(double x)
+{
+    const double a = -0.5;
+    if(x < 1+1e-10) return (a+2)*x*x*x-(a+3)*x*x+1;
+    if(x < 2) return a*x*x*x-5*a*x*x+8*a*x-4*a;
+    return 0;
+}
+
+void MainWindow::bicubicResize()
+{
+    if(img.empty()) return ;
+    if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
+    if(state != 7)
+    {
+        this->imgbak = this->img.clone();
+        state = 7;
+    }
+    int h = heightEdit->text().toInt(), w = weightEdit->text().toInt();
+    img.create(h,w, CV_8UC3);
+    int nRows = img.rows;
+    int nCols = img.cols;
+    for(int i = 0; i < nRows; ++i)
+    {
+        cv::Vec3b* n = img.ptr<cv::Vec3b>(i);
+        int x = double(i)/nRows*imgbak.rows;
+        const cv::Vec3b* pt[4];
+        const cv::Vec3b* *p=pt+1;
+        p[0] = imgbak.ptr<cv::Vec3b>(x);
+        for(int k=-1;k<=2;k++)
+        {
+            if(x+k < 0) p[k] = p[k+1];
+            else if(x+k >= imgbak.rows) p[k] = p[k-1];
+            else p[k] = imgbak.ptr<cv::Vec3b>(x+k);
+        }
+        #pragma omp parallel for
+        for (int j = 0; j < nCols; ++j)
+        {
+            int y = double(j)/nCols*imgbak.cols;
+            cv::Vec3f sum = cv::Vec3f();
+            double sumt = 0.0;
+            for (int k=-1; k<=2;k++)
+                for (int l=-1; l<=2; l++)
+                {
+                    cv::Vec3f t;
+                    if(y+l < 0) t = p[k][0];
+                    else if(y+l >= imgbak.cols) t = p[k][imgbak.cols];
+                    else t = p[k][y+l];
+                    double w = cubicW(fabs(double(j)/nCols*imgbak.cols-(y+l)))*cubicW(fabs(double(i)/nRows*imgbak.rows-(x+k)));
+                    sum = sum + w * t;
+                    sumt += w;
+                }
+            n[j] = sum/sumt;
+        }
+    }
+    this->displayImg();
+}
+
 
 MainWindow::~MainWindow()
 {

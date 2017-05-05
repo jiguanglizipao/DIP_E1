@@ -22,7 +22,7 @@ private:
     cv::Mat img, imgbak;
     QScrollArea *scrollarea;
     QSlider *brightSlider, *contrastSlider, *gammaSlider;
-    QLineEdit *miEdit, *maEdit;
+    QLineEdit *miEdit, *maEdit, *heightEdit, *weightEdit;
     QLabel *imgLabel;
     QImage qimg;
     int state;
@@ -38,6 +38,9 @@ private slots:
     void histEqualRGB();
     void histMatch();
     void histMatchRGB();
+    void neighborResize();
+    void bilinearResize();
+    void bicubicResize();
 };
 
 #endif // MAINWINDOW_H
