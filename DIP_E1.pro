@@ -30,6 +30,6 @@ HEADERS  += mainwindow.h
 
 FORMS    +=
 
-LIBS += -lopencv_core -lopencv_imgproc -lopencv_imgcodecs -fopenmp
+LIBS += -lopencv_core -lopencv_imgproc -lopencv_highgui -fopenmp
 
 QMAKE_CXXFLAGS += -fopenmp
