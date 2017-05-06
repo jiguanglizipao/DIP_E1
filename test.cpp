@@ -1,88 +1,212 @@
-#include <opencv2/opencv.hpp>
-#include<opencv2/legacy/legacy.hpp>
-#include <opencv2/nonfree/nonfree.hpp>
-using namespace cv;
-int main()
-{
-    Mat img01=imread("1.png");
-    Mat img02=imread("2.png");
-    //imshow("original image1",img01);
-    //imshow("original image2",img02);
+#include "opencv2/opencv.hpp"  
+#include "opencv2/objdetect/objdetect.hpp"  
+#include "opencv2/highgui/highgui.hpp"  
+#include "opencv2/imgproc/imgproc.hpp"  
+  
+#include <iostream>  
+#include <stdio.h>  
+  
+using namespace std;  
+using namespace cv;  
+  
+String cascadeName = "/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml";  
+  
+IplImage* cutImage(IplImage* src, CvRect rect) {  
+    cvSetImageROI(src, rect);  
+    IplImage* dst = cvCreateImage(cvSize(rect.width, rect.height),  
+            src->depth,  
+            src->nChannels);  
+  
+    cvCopy(src,dst,0);  
+    cvResetImageROI(src);  
+    return dst;  
+}  
+  
+IplImage* detect( Mat& img, CascadeClassifier& cascade, double scale)  
+{  
+    int i = 0;  
+    double t = 0;  
+    vector<Rect> faces;  
+    Mat gray, smallImg( cvRound (img.rows/scale), cvRound(img.cols/scale), CV_8UC1 );  
+  
+    cvtColor( img, gray, CV_BGR2GRAY );  
+    resize( gray, smallImg, smallImg.size(), 0, 0, INTER_LINEAR );  
+    equalizeHist( smallImg, smallImg );  
+  
+    t = (double)cvGetTickCount();  
+    cascade.detectMultiScale( smallImg, faces,  
+        1.3, 2, CV_HAAR_SCALE_IMAGE,  
+        Size(30, 30) );  
+    t = (double)cvGetTickCount() - t;  
+//    printf( "detection time = %g ms\n", t/((double)cvGetTickFrequency()*1000.) ); 
+    IplImage iplimg = img;
+    IplImage *tmp = cvCloneImage(&iplimg); 
+    for( vector<Rect>::const_iterator r = faces.begin(); r != faces.end(); r++, i++ )  
+    {  
+        IplImage* temp = cutImage(tmp, cvRect(r->x, r->y, r->width, r->height));  
+        return temp;  
+    }  
+  
+    return tmp;  
+}  
+//画直方图用  
+int HistogramBins = 256;  
+float HistogramRange1[2]={0,255};  
+float *HistogramRange[1]={&HistogramRange1[0]};  
+double CompareHist(IplImage* image1, IplImage* image2)  
+{  
+    IplImage* srcImage;  
+    IplImage* targetImage;  
+    if (image1->nChannels != 1) {  
+        srcImage = cvCreateImage(cvSize(image1->width, image1->height), image1->depth, 1);  
+        cvCvtColor(image1, srcImage, CV_BGR2GRAY);  
+    } else {  
+        srcImage = image1;  
+    }  
+  
+    if (image2->nChannels != 1) {  
+        targetImage = cvCreateImage(cvSize(image2->width, image2->height), srcImage->depth, 1);  
+        cvCvtColor(image2, targetImage, CV_BGR2GRAY);  
+    } else {  
+        targetImage = image2;  
+    }  
+  
+    CvHistogram *Histogram1 = cvCreateHist(1, &HistogramBins, CV_HIST_ARRAY,HistogramRange);  
+    CvHistogram *Histogram2 = cvCreateHist(1, &HistogramBins, CV_HIST_ARRAY,HistogramRange);  
+  
+    cvCalcHist(&srcImage, Histogram1);  
+    cvCalcHist(&targetImage, Histogram2);  
+  
+    cvNormalizeHist(Histogram1, 1);  
+    cvNormalizeHist(Histogram2, 1);  
+  
+    // CV_COMP_CHISQR,CV_COMP_BHATTACHARYYA这两种都可以用来做直方图的比较，值越小，说明图形越相似  
+//    printf("CV_COMP_CHISQR : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_CHISQR));  
+//    printf("CV_COMP_BHATTACHARYYA : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_BHATTACHARYYA));  
+  
+  
+    // CV_COMP_CORREL, CV_COMP_INTERSECT这两种直方图的比较，值越大，说明图形越相似  
+    fprintf(stderr, "CV_COMP_CORREL : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_CORREL));  
+    fprintf(stderr, "CV_COMP_INTERSECT : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_INTERSECT)); 
 
-    //SIFT特征检测
-    SiftFeatureDetector detector;        //定义特点点检测器
-    vector<KeyPoint> keypoint01,keypoint02;//定义两个容器存放特征点
-    detector.detect(img01,keypoint01);
-    detector.detect(img02,keypoint02);
-
-    //在两幅图中画出检测到的特征点
-    Mat out_img01;
-    Mat out_img02;
-    drawKeypoints(img01,keypoint01,out_img01);
-    drawKeypoints(img02,keypoint02,out_img02);
-    //imshow("特征点图01",out_img01);
-    //imshow("特征点图02",out_img02);
-
-    //提取特征点的特征向量（128维）
-    SiftDescriptorExtractor extractor;
-    Mat descriptor01,descriptor02;
-    extractor.compute(img01,keypoint01,descriptor01);
-    extractor.compute(img02,keypoint02,descriptor02);
-
-    //匹配特征点，主要计算两个特征点特征向量的欧式距离，距离小于某个阈值则认为匹配
-
-    BruteForceMatcher<L2<float> > matcher;
-    vector<DMatch> matches;
-    Mat img_matches;
-    matcher.match(descriptor01,descriptor02,matches);
-    drawMatches(img01,keypoint01,img02,keypoint02,matches,img_matches);
-    imshow("误匹配消除前",img_matches);
-    
-        //RANSAC 消除误匹配特征点 主要分为三个部分：
-    //1）根据matches将特征点对齐,将坐标转换为float类型
-    //2）使用求基础矩阵方法 findFundamentalMat,得到RansacStatus
-    //3）根据RansacStatus来将误匹配的点也即RansacStatus[i]=0的点删除
-
-    //根据matches将特征点对齐,将坐标转换为float类型
-    vector<KeyPoint> R_keypoint01,R_keypoint02;
-    for (size_t i=0;i<matches.size();i++)   
-    {
-        R_keypoint01.push_back(keypoint01[matches[i].queryIdx]);
-        R_keypoint02.push_back(keypoint02[matches[i].trainIdx]);
-        //这两句话的理解：R_keypoint1是要存储img01中能与img02匹配的特征点，
-        //matches中存储了这些匹配点对的img01和img02的索引值
-    }
-
-    //坐标转换
-    vector<Point2f>p01,p02;
-    for (size_t i=0;i<matches.size();i++)
-    {
-        p01.push_back(R_keypoint01[i].pt);
-        p02.push_back(R_keypoint02[i].pt);
-    }
-
-    //利用基础矩阵剔除误匹配点
-    vector<uchar> RansacStatus;
-    Mat Fundamental= findFundamentalMat(p01,p02,RansacStatus,FM_RANSAC);
-
-
-    vector<KeyPoint> RR_keypoint01,RR_keypoint02;
-    vector<DMatch> RR_matches;            //重新定义RR_keypoint 和RR_matches来存储新的关键点和匹配矩阵
-    int index=0;
-    for (size_t i=0;i<matches.size();i++)
-    {
-        if (RansacStatus[i]!=0)
-        {
-            RR_keypoint01.push_back(R_keypoint01[i]);
-            RR_keypoint02.push_back(R_keypoint02[i]);
-            matches[i].queryIdx=index;
-            matches[i].trainIdx=index;
-            RR_matches.push_back(matches[i]);
-            index++;
-        }
-    }
-    Mat img_RR_matches;
-    drawMatches(img01,RR_keypoint01,img02,RR_keypoint02,RR_matches,img_RR_matches);
-    imshow("消除误匹配点后",img_RR_matches);
-    waitKey();
+    double t = cvCompareHist(Histogram1, Histogram2, CV_COMP_CORREL) + cvCompareHist(Histogram1, Histogram2, CV_COMP_INTERSECT);// - cvCompareHist(Histogram1, Histogram2, CV_COMP_BHATTACHARYYA);
+  
+    cvReleaseHist(&Histogram1);  
+    cvReleaseHist(&Histogram2);  
+    if (image1->nChannels != 1) {  
+        cvReleaseImage(&srcImage);  
+    }  
+    if (image2->nChannels != 1) {  
+        cvReleaseImage(&targetImage);  
+    }  
+    return t;  
 }
+
+double CompareLuv(IplImage* image1, IplImage* image2, int type)  
+{  
+    IplImage* srcImage;  
+    IplImage* targetImage;  
+    if (image1->nChannels != 1) {  
+        srcImage = cvCreateImage(cvSize(image1->width, image1->height), image1->depth, 3);  
+        cvCvtColor(image1, srcImage, CV_BGR2Luv); 
+        int step = image1->widthStep;  
+        int chanel = image1->nChannels;  
+        IplImage * b = cvCreateImage(cvGetSize(image1),IPL_DEPTH_8U,1);
+        char * bdata = b->imageData, * data = image1->imageData;  
+        for(int i=0;i<image1->height;i++)  
+            for(int j=0;j<image1->width;j++) 
+            {  
+                bdata[i*step/3 + j] = data[i*step + j*chanel + type];  
+            }
+        srcImage = b; 
+    } else {  
+        srcImage = image1;  
+    }  
+  
+    if (image2->nChannels != 1) {  
+        targetImage = cvCreateImage(cvSize(image2->width, image2->height), srcImage->depth, 3);  
+        cvCvtColor(image2, targetImage, CV_BGR2Luv);  
+        int step = image2->widthStep;  
+        int chanel = image2->nChannels;  
+        IplImage * b = cvCreateImage(cvGetSize(image2),IPL_DEPTH_8U,1);
+        char * bdata = b->imageData, * data = image2->imageData;  
+        for(int i=0;i<image2->height;i++)  
+            for(int j=0;j<image2->width;j++) 
+            {  
+                bdata[i*step/3 + j] = data[i*step + j*chanel + type];  
+            }
+        targetImage = b; 
+    } else {  
+        targetImage = image2;  
+    }  
+  
+    CvHistogram *Histogram1 = cvCreateHist(1, &HistogramBins, CV_HIST_ARRAY,HistogramRange);  
+    CvHistogram *Histogram2 = cvCreateHist(1, &HistogramBins, CV_HIST_ARRAY,HistogramRange);  
+  
+    cvCalcHist(&srcImage, Histogram1);  
+    cvCalcHist(&targetImage, Histogram2);  
+  
+    cvNormalizeHist(Histogram1, 1);  
+    cvNormalizeHist(Histogram2, 1);  
+  
+    // CV_COMP_CHISQR,CV_COMP_BHATTACHARYYA这两种都可以用来做直方图的比较，值越小，说明图形越相似  
+//    printf("CV_COMP_CHISQR : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_CHISQR));  
+//    printf("CV_COMP_BHATTACHARYYA : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_BHATTACHARYYA));  
+  
+  
+    // CV_COMP_CORREL, CV_COMP_INTERSECT这两种直方图的比较，值越大，说明图形越相似  
+    fprintf(stderr, "CV_COMP_CORREL : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_CORREL));  
+    fprintf(stderr, "CV_COMP_INTERSECT : %.4f\n", cvCompareHist(Histogram1, Histogram2, CV_COMP_INTERSECT)); 
+
+    double t = cvCompareHist(Histogram1, Histogram2, CV_COMP_CORREL) + cvCompareHist(Histogram1, Histogram2, CV_COMP_INTERSECT);// - cvCompareHist(Histogram1, Histogram2, CV_COMP_BHATTACHARYYA);
+  
+    cvReleaseHist(&Histogram1);  
+    cvReleaseHist(&Histogram2);  
+    if (image1->nChannels != 1) {  
+        cvReleaseImage(&srcImage);  
+    }  
+    if (image2->nChannels != 1) {  
+        cvReleaseImage(&targetImage);  
+    }  
+    return t;  
+}  
+int main(int argc, char* argv[])  
+{  
+	String srcImage = argv[1];  
+	String targetImage = argv[2];  
+    CascadeClassifier cascade;  
+    if( !cascade.load( cascadeName ) )  
+    {  
+        return -1;  
+    }  
+  
+    namedWindow("image1");  
+    namedWindow("image2");  
+    Mat srcImg, targetImg;  
+    IplImage* faceImage1;  
+    IplImage* faceImage2;  
+    srcImg = imread(srcImage);  
+    targetImg = imread(targetImage); 
+    if(srcImg.empty() || targetImg.empty()) return 0; 
+    faceImage1 = detect(srcImg, cascade, 1);  
+    if (faceImage1 == NULL) {  
+        return -1;  
+    }  
+//    cvSaveImage("d:\\face.jpg", faceImage1, 0);  
+    faceImage2 = detect(targetImg, cascade, 1);  
+    if (faceImage2 == NULL) {  
+        return -1;  
+    }  
+//    cvSaveImage("d:\\face1.jpg", faceImage2, 0);  
+    if(CompareLuv(faceImage1, faceImage2, 0) < 1.41 || CompareLuv(faceImage1, faceImage2, 2) < 1.43 || CompareHist(faceImage1, faceImage2) < 1.454) return 0; 
+    
+    printf("%s %s %lf %lf %lf\n", argv[1], argv[2], CompareLuv(faceImage1, faceImage2, 0), CompareLuv(faceImage1, faceImage2, 2), CompareHist(faceImage1, faceImage2)); 
+    
+    imshow("image1", Mat(faceImage1));  
+    imshow("image2", Mat(faceImage2));  
+    waitKey();
+
+    cvReleaseImage(&faceImage1);  
+    cvReleaseImage(&faceImage2);  
+    return 0;  
+}  
