@@ -180,8 +180,6 @@ int main(int argc, char* argv[])
         return -1;  
     }  
   
-    namedWindow("image1");  
-    namedWindow("image2");  
     Mat srcImg, targetImg;  
     IplImage* faceImage1;  
     IplImage* faceImage2;  
@@ -202,9 +200,11 @@ int main(int argc, char* argv[])
     
     printf("%s %s %lf %lf %lf\n", argv[1], argv[2], CompareLuv(faceImage1, faceImage2, 0), CompareLuv(faceImage1, faceImage2, 2), CompareHist(faceImage1, faceImage2)); 
     
-    imshow("image1", Mat(faceImage1));  
-    imshow("image2", Mat(faceImage2));  
-    waitKey();
+//    namedWindow("image1");  
+//    namedWindow("image2");  
+//    imshow("image1", Mat(faceImage1));  
+//    imshow("image2", Mat(faceImage2));  
+//    waitKey();
 
     cvReleaseImage(&faceImage1);  
     cvReleaseImage(&faceImage2);  
