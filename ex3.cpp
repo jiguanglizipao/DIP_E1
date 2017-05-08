@@ -9,7 +9,7 @@
 using namespace std;
 using namespace cv; 
 
-String cascadeName = "/usr/share/opencv/haarcascades/haarcascade_frontalface_alt.xml";  
+String cascadeName = "haarcascade_frontalface_alt.xml";  
 
 IplImage* cutImage(IplImage* src, CvRect rect) {  
     cvSetImageROI(src, rect);  
