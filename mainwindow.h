@@ -41,6 +41,9 @@ private slots:
     void neighborResize();
     void bilinearResize();
     void bicubicResize();
+    void neighbor(const cv::Mat &imgbak, cv::Mat &img, int h, int w);
+    void bilinear(const cv::Mat &imgbak, cv::Mat &img, int h, int w);
+    void bicubic(const cv::Mat &imgbak, cv::Mat &img, int h, int w);
 };
 
 #endif // MAINWINDOW_H

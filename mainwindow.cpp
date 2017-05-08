@@ -359,7 +359,7 @@ void MainWindow::histEqualRGB()
     }
     std::vector<cv::Mat> ycr;
     cv::split(imgbak, ycr);
-    for(int c=0;c<3;c++)
+    for(int c=0;c<imgbak.channels();c++)
     {
         std::vector<float> cdf = getCdf(ycr[c]);
         uchar p[256];
@@ -424,7 +424,7 @@ void MainWindow::histMatchRGB()
     std::vector<cv::Mat> ycr, ycr_trg;
     cv::split(imgbak, ycr);
     cv::split(trg, ycr_trg);
-    for(int c=0; c<3; c++)
+    for(int c=0; c<imgbak.channels(); c++)
     {
         std::vector<float> cdf = getCdf(ycr[c]);
         std::vector<float> cdf_trg = getCdf(ycr_trg[c]);
@@ -440,16 +440,29 @@ void MainWindow::histMatchRGB()
     this->displayImg();
 }
 
-void MainWindow::neighborResize()
+static double getPSNR(const cv::Mat& I1, const cv::Mat& I2)
 {
-    if(img.empty()) return ;
-    if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
-    if(state != 7)
+    cv::Mat s1;
+    cv::absdiff(I1, I2, s1);
+    s1.convertTo(s1, CV_32F);
+    s1 = s1.mul(s1);
+
+    cv::Scalar s = cv::sum(s1);
+
+    double sse = s.val[0] + s.val[1] + s.val[2];
+
+//    if(sse <= 1e-10)
+//        return 0;
+//    else
     {
-        this->imgbak = this->img.clone();
-        state = 7;
+        double mse = sse/(double)(I1.channels()*I1.total());
+        double psnr = 10.0*log10((255*255)/mse);
+        return psnr;
     }
-    int h = heightEdit->text().toInt(), w = weightEdit->text().toInt();
+}
+
+void MainWindow::neighbor(const cv::Mat &imgbak, cv::Mat &img, int h, int w)
+{
     img.create(h,w, CV_8UC3);
     int nRows = img.rows;
     int nCols = img.cols;
@@ -462,15 +475,9 @@ void MainWindow::neighborResize()
             n[j] = p[int(round(double(j)/nCols*imgbak.cols))];
         }
     }
-    this->displayImg();
 }
 
-static cv::Vec3b bilinearInterpolate(cv::Vec3b c00, cv::Vec3b c10, cv::Vec3b c01, cv::Vec3b c11, double w1, double w2, double w3, double w4)
-{
-    return w1*c00+w2*c01+w3*c10+w4*c11;
-}
-
-void MainWindow::bilinearResize()
+void MainWindow::neighborResize()
 {
     if(img.empty()) return ;
     if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
@@ -479,7 +486,20 @@ void MainWindow::bilinearResize()
         this->imgbak = this->img.clone();
         state = 7;
     }
-    int h = heightEdit->text().toInt(), w = weightEdit->text().toInt();
+    cv::Mat tmp;
+    neighbor(imgbak, img, heightEdit->text().toInt(), weightEdit->text().toInt());
+    neighbor(img, tmp, imgbak.rows, imgbak.cols);
+    QMessageBox::information(this, "PSNR", QString::number(getPSNR(tmp, imgbak)));
+    this->displayImg();
+}
+
+static cv::Vec3b bilinearInterpolate(cv::Vec3b c00, cv::Vec3b c10, cv::Vec3b c01, cv::Vec3b c11, double w1, double w2, double w3, double w4)
+{
+    return w1*c00+w2*c01+w3*c10+w4*c11;
+}
+
+void MainWindow::bilinear(const cv::Mat &imgbak, cv::Mat &img, int h, int w)
+{
     img.create(h,w, CV_8UC3);
     int nRows = img.rows;
     int nCols = img.cols;
@@ -505,6 +525,21 @@ void MainWindow::bilinearResize()
             n[j] = bilinearInterpolate(c00, c10, c01, c11, w1, w2, w3, w4);
         }
     }
+}
+
+void MainWindow::bilinearResize()
+{
+    if(img.empty()) return ;
+    if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
+    if(state != 7)
+    {
+        this->imgbak = this->img.clone();
+        state = 7;
+    }
+    cv::Mat tmp;
+    bilinear(imgbak, img, heightEdit->text().toInt(), weightEdit->text().toInt());
+    bilinear(img, tmp, imgbak.rows, imgbak.cols);
+    QMessageBox::information(this, "PSNR", QString::number(getPSNR(tmp, imgbak)));
     this->displayImg();
 }
 
@@ -516,16 +551,8 @@ static double cubicW(double x)
     return 0;
 }
 
-void MainWindow::bicubicResize()
+void MainWindow::bicubic(const cv::Mat &imgbak, cv::Mat &img, int h, int w)
 {
-    if(img.empty()) return ;
-    if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
-    if(state != 7)
-    {
-        this->imgbak = this->img.clone();
-        state = 7;
-    }
-    int h = heightEdit->text().toInt(), w = weightEdit->text().toInt();
     img.create(h,w, CV_8UC3);
     int nRows = img.rows;
     int nCols = img.cols;
@@ -562,6 +589,21 @@ void MainWindow::bicubicResize()
             n[j] = sum/sumt;
         }
     }
+}
+
+void MainWindow::bicubicResize()
+{
+    if(img.empty()) return ;
+    if(heightEdit->text().toInt() * weightEdit->text().toInt() == 0) return ;
+    if(state != 7)
+    {
+        this->imgbak = this->img.clone();
+        state = 7;
+    }
+    cv::Mat tmp;
+    bicubic(imgbak, img, heightEdit->text().toInt(), weightEdit->text().toInt());
+    bicubic(img, tmp, imgbak.rows, imgbak.cols);
+    QMessageBox::information(this, "PSNR", QString::number(getPSNR(tmp, imgbak)));
     this->displayImg();
 }
 
