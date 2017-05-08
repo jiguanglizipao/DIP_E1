@@ -6,6 +6,6 @@ do
     for (( j=1; j<=18; j++ ))
     do
 #        echo l$i.png r$j.png
-        ./test image/r$i.png image/l$j.png
+        ./test2 image/r$i.png image/l$j.png
     done
 done
